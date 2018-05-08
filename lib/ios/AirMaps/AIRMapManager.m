@@ -369,6 +369,79 @@ RCT_EXPORT_METHOD(coordinateForPoint:(nonnull NSNumber *)reactTag
     }];
 }
 
+
+RCT_EXPORT_METHOD(animateToView:(nonnull NSNumber *)reactTag
+                  withLatLng:(CLLocationCoordinate2D)latlng
+                  withAltitude:(double)altitudeMeters
+                  withBearing:(CGFloat)bearing
+                  withAngle:(double)angle
+                  withVerticalOffset:(double)offsetMeters
+                  withDuration:(CGFloat)duration)
+{
+    [self.bridge.uiManager addUIBlock:^(__unused RCTUIManager *uiManager, NSDictionary<NSNumber *, UIView *> *viewRegistry) {
+        id view = viewRegistry[reactTag];
+        if (![view isKindOfClass:[AIRMap class]]) {
+            RCTLogError(@"Invalid view returned from registry, expecting AIRMap, got: %@", view);
+        } else {
+            
+            AIRMap *mapView = (AIRMap *)view;
+            MKMapCamera *mapCamera = [[mapView camera] copy];
+            
+            CLLocationCoordinate2D coordinateAhead = [self coordinateFromCoord: latlng atDistanceKm:offsetMeters/1000 atBearingDegrees: bearing];
+            
+            [mapCamera setCenterCoordinate: coordinateAhead];
+            //[mapCamera setCenterCoordinate: latlng];
+            [mapCamera setHeading:bearing];
+            [mapCamera setAltitude: altitudeMeters];
+            [mapCamera setPitch: angle];
+            
+            
+            [AIRMap animateWithDuration:duration/1000 animations:^{
+                [mapView setCamera:mapCamera animated:YES];
+            }];
+        }
+    }];
+}
+
+
+// Helper functions to allow vertical offsetting the current position:
+- (double)radiansFromDegrees:(double)degrees
+{
+    return degrees * (M_PI/180.0);
+}
+
+- (double)degreesFromRadians:(double)radians
+{
+    return radians * (180.0/M_PI);
+}
+
+- (CLLocationCoordinate2D)coordinateFromCoord:
+(CLLocationCoordinate2D)fromCoord
+                                 atDistanceKm:(double)distanceKm
+                             atBearingDegrees:(double)bearingDegrees
+{
+    double distanceRadians = distanceKm / 6371.0;
+    //6,371 = Earth's radius in km
+    double bearingRadians = [self radiansFromDegrees:bearingDegrees];
+    double fromLatRadians = [self radiansFromDegrees:fromCoord.latitude];
+    double fromLonRadians = [self radiansFromDegrees:fromCoord.longitude];
+    
+    double toLatRadians = asin( sin(fromLatRadians) * cos(distanceRadians)
+                               + cos(fromLatRadians) * sin(distanceRadians) * cos(bearingRadians) );
+    
+    double toLonRadians = fromLonRadians + atan2(sin(bearingRadians)
+                                                 * sin(distanceRadians) * cos(fromLatRadians), cos(distanceRadians)
+                                                 - sin(fromLatRadians) * sin(toLatRadians));
+    
+    // adjust toLonRadians to be in the range -180 to +180...
+    toLonRadians = fmod((toLonRadians + 3*M_PI), (2*M_PI)) - M_PI;
+    
+    CLLocationCoordinate2D result;
+    result.latitude = [self degreesFromRadians:toLatRadians];
+    result.longitude = [self degreesFromRadians:toLonRadians];
+    return result;
+}
+
 #pragma mark Take Snapshot
 - (void)takeMapSnapshot:(AIRMap *)mapView
         snapshotter:(MKMapSnapshotter *) snapshotter
